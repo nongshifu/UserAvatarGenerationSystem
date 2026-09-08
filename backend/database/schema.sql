@@ -1,6 +1,15 @@
--- 头像引擎系统 初始建表脚本
+-- ============================================================
+-- 头像引擎系统 · 完整数据库结构（唯一权威版本）
 -- 目标数据库：MySQL 5.6，字符集 utf8mb4
--- 执行：mysql -u<user> -p<pass> avatar < 001_init.sql
+-- 全新部署执行：mysql -u<user> -p avatar < schema.sql
+--
+-- 说明：本文件已合并历史迁移 001~005 的全部变更：
+--   002 styles.prompt 完整提示词字段（已含在建表与初始数据中）
+--   003 users.phone_verified 手机验证字段（已含在建表中）
+--   004 audit.precheck_* 上传预审配置（已含在 site_settings 初始数据中）
+--   005 generation_records.origin_image_url 原图地址字段（已含在建表中）
+-- 后续表结构变更：直接修改本文件，并在文件末尾「变更记录」处追加说明。
+-- ============================================================
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -46,7 +55,7 @@ CREATE TABLE `user_keys` (
   `status` tinyint(1) NOT NULL DEFAULT 1,
   `rate_limit` int(11) NOT NULL DEFAULT 0,
   `daily_limit` int(11) NOT NULL DEFAULT 0,
-  `used_today` int(11) NOT NULL DEFAULT 0,
+  `used_today` int(11) UNSIGNED NOT NULL DEFAULT 0,
   `last_used_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -299,7 +308,7 @@ CREATE TABLE `audit_logs` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ── 初始数据 ──────────────────────────────────────────
--- 超级管理员：用户名 admin，密码 admin123（bcrypt hash，建议首次登录修改）
+-- 超级管理员：用户名 admin，密码 admin123（bcrypt hash，建议首次登录立即修改）
 INSERT INTO `users` (`username`,`email`,`password`,`role`,`status`,`points`)
 VALUES ('admin','admin@localhost','$2y$10$t5mI8VjUvbv065XhDGwkeOEUSJrL/dvcvV2iIgMdwTox7gZ8rSH.q','admin',1,0);
 
@@ -331,21 +340,28 @@ INSERT INTO `point_products` (`name`,`price`,`points`,`bonus_points`,`sort`,`sta
 ('50元/600积分',50.00,500,100,3,1,'送100积分'),
 ('100元/1300积分',100.00,1000,300,4,1,'送300积分');
 
+-- 站点配置：后台「站点设置 / 积分配置 / API生图 / 审核设置 / 邮箱配置 / 短信配置」六个分组
+-- 注意：DB 值优先级高于 backend/config/*.php 文件；bool 值统一存 '1'/'0' 字符串
 INSERT INTO `site_settings` (`group_key`,`item_key`,`item_value`,`item_type`,`description`) VALUES
+-- 站点设置（basic）
 ('basic','site_name','头像引擎','string','站名'),
+('basic','site_url','','string','站点 URL（必填！公网完整域名、结尾不带 /，Worker 拼原图地址用）'),
 ('basic','site_logo','','string','LOGO URL'),
 ('basic','icp','','string','备案号'),
 ('basic','customer_service','','string','客服'),
 ('basic','footer_text','','string','底部版权文案，支持 {year} {site} 占位符'),
 ('basic','analytics_code','','string','统计代码'),
+-- 积分配置（points）
 ('points','register_bonus','100','number','注册赠送'),
 ('points','default_cost','10','number','默认消耗'),
 ('points','min_balance','1','number','最低阈值'),
+-- API 生图（api）
 ('api','ark_api_key','','string','豆包 API Key'),
 ('api','ark_model','doubao-seedream-5-0-260128','string','模型名'),
-('api','image_size','2K','string','图片尺寸'),
+('api','image_size','2k','string','图片尺寸（小写 1k/2k/3k/4k）'),
 ('api','watermark','true','boolean','水印'),
-('audit','enabled','false','boolean','审核总开关'),
+-- 审核设置（audit）
+('audit','enabled','false','boolean','审核总开关（生成结果内容审核）'),
 ('audit','auto_approve','true','boolean','通过自动入池'),
 ('audit','refund_on_reject','true','boolean','驳回退积分'),
 ('audit','security_api_key','','string','内容审核 API Key'),
@@ -354,6 +370,22 @@ INSERT INTO `site_settings` (`group_key`,`item_key`,`item_value`,`item_type`,`de
 ('audit','precheck_model','doubao-seed-2-0-lite-260428','string','预审图像理解模型'),
 ('audit','precheck_prompt','','string','预审审核提示词（留空用默认规则）'),
 ('audit','precheck_fail_open','true','boolean','审核服务异常时放行'),
+-- 邮箱配置（mail，SMTP 发信找回密码）
+('mail','mail_enabled','false','boolean','启用邮箱发信'),
+('mail','smtp_host','','string','SMTP 服务器（如 smtp.qq.com）'),
+('mail','smtp_port','465','number','SMTP 端口（SSL 推荐 465）'),
+('mail','smtp_user','','string','发件邮箱'),
+('mail','smtp_pass','','string','SMTP 授权码（非邮箱登录密码）'),
+('mail','from_name','','string','发件人显示名（留空用站点名称）'),
+-- 短信配置（sms，接口盒子 apihz.cn）
+('sms','sms_enabled','false','boolean','启用短信验证码'),
+('sms','sms_force_verify','false','boolean','强制手机验证才能生成'),
+('sms','apihz_id','','string','接口盒子开发者 ID'),
+('sms','apihz_key','','string','接口盒子通讯秘钥'),
+('sms','apihz_url','','string','短信代发接口地址（留空用默认）'),
+('sms','sms_dynamic','false','boolean','启用动态秘钥验证'),
+('sms','sms_dmsg','','string','动态秘钥预留信息（dmsg）'),
+-- 支付配置（payment，预留；当前走人工确认到账）
 ('payment','wechat_appid','','string','微信 AppID'),
 ('payment','wechat_mchid','','string','微信商户号'),
 ('payment','wechat_api_key','','string','微信 API 密钥'),
@@ -361,12 +393,15 @@ INSERT INTO `site_settings` (`group_key`,`item_key`,`item_value`,`item_type`,`de
 ('payment','alipay_appid','','string','支付宝 AppID'),
 ('payment','alipay_private_key','','string','支付宝应用私钥'),
 ('payment','alipay_public_key','','string','支付宝公钥'),
-('payment','alipay_notify_url','','string','支付宝回调地址'),
-('basic','site_url','','string','站点 URL（用于 SEO sitemap/OG）');
+('payment','alipay_notify_url','','string','支付宝回调地址');
 
 INSERT INTO `seo_settings` (`page`,`title`,`keywords`,`description`) VALUES
 ('home','AI 头像生成引擎 | 一键生成卡通头像','头像,卡通头像,AI头像,头像生成','上传真人头像，AI 生成个性卡通头像，支持多种风格、颜色、形状。'),
 ('category','头像分类 - {style} | 头像引擎','头像,{style},分类','浏览 {style} 风格头像集合。'),
 ('avatar','头像详情 #{id} | 头像引擎','头像,卡通头像','头像详情页。');
 
--- 完成
+-- ============================================================
+-- 变更记录
+-- 2026-09 合并历史迁移 001~005 为单一 schema.sql；补齐 mail/sms 配置初始项；
+--          user_keys.used_today 修正为 UNSIGNED；image_size 初始值改为小写 2k
+-- ============================================================
