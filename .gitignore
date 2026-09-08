@@ -1,0 +1,15 @@
+# ── macOS 系统文件 ──
+.DS_Store
+
+# ── 运行时数据（服务器本地生成，不入库） ──
+storage/logs/*
+storage/cache/*
+storage/uploads/*
+!storage/**/.gitkeep
+
+# ── 敏感配置（含真实数据库密码，请勿入库；新环境复制 .example 模板） ──
+backend/config/database.php
+
+# ── 归档与压缩包 ──
+*.zip
+*.tar.gz

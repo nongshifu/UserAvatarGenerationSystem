@@ -1,0 +1,145 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Controllers\Web;
+
+use App\Core\Request;
+use App\Core\Response;
+use App\Core\View;
+use App\Services\SiteSettingService;
+use App\Services\UserAuthService;
+use App\Services\UserService;
+
+/**
+ * 用户控制台
+ * - GET /console          概览
+ * - GET /console/avatars  我的头像
+ * - GET /console/points   积分记录
+ * - GET /console/orders   订单记录
+ */
+final class ConsoleController
+{
+    private function userOrFail(Response $res): ?\App\Models\User
+    {
+        $user = UserAuthService::currentUser();
+        if (!$user) {
+            $res->redirect('/login');
+            return null;
+        }
+        return $user;
+    }
+
+    /** GET /console */
+    public function index(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $stats = UserService::stats((int)$user->id);
+        View::display($res, 'console/index', [
+            'title'       => '控制台 - 头像引擎',
+            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser' => $user,
+            'balance'     => UserService::balance((int)$user->id),
+            'stats'       => $stats,
+        ]);
+    }
+
+    /** GET /console/avatars */
+    public function avatars(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $page = max(1, (int)$req->queryGet('page', 1));
+        $result = UserService::myAvatars((int)$user->id, $page, 24);
+        View::display($res, 'console/avatars', [
+            'title'       => '我的头像 - 头像引擎',
+            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser' => $user,
+            'list'         => $result['list'],
+            'pagination'   => $result['pagination'],
+        ]);
+    }
+
+    /** GET /console/points （积分记录，支持搜索） */
+    public function points(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $page    = max(1, (int)$req->queryGet('page', 1));
+        $filters = [
+            'keyword' => trim((string)$req->queryGet('q', '')),
+            'type'    => trim((string)$req->queryGet('type', '')),
+        ];
+        $result = UserService::pointLogs((int)$user->id, $page, 20, $filters);
+        View::display($res, 'console/points', [
+            'title'       => '积分记录 - 头像引擎',
+            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser' => $user,
+            'balance'     => UserService::balance((int)$user->id),
+            'list'        => $result['list'],
+            'pagination'  => $result['pagination'],
+            'filters'     => $filters,
+        ]);
+    }
+
+    /** GET /console/generations （生成记录/任务进度，支持搜索） */
+    public function generations(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $page    = max(1, (int)$req->queryGet('page', 1));
+        $filters = [
+            'keyword' => trim((string)$req->queryGet('q', '')),
+            'status'  => trim((string)$req->queryGet('status', '')),
+        ];
+        $result = UserService::myGenerations((int)$user->id, $page, 15, $filters);
+
+        // 风格名映射（带缓存的维度表）
+        $styleMap = [];
+        foreach (UserService::dimensionOptions()['styles'] as $s) {
+            $styleMap[(int)$s['id']] = $s['name'];
+        }
+
+        View::display($res, 'console/generations', [
+            'title'       => '生成记录 - 头像引擎',
+            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser' => $user,
+            'balance'     => UserService::balance((int)$user->id),
+            'list'        => $result['list'],
+            'pagination'  => $result['pagination'],
+            'filters'     => $filters,
+            'styleMap'    => $styleMap,
+        ]);
+    }
+
+    /** GET /console/orders （订单记录，支持搜索） */
+    public function orders(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $page    = max(1, (int)$req->queryGet('page', 1));
+        $filters = [
+            'keyword' => trim((string)$req->queryGet('q', '')),
+            'status'  => trim((string)$req->queryGet('status', '')),
+        ];
+        $result = UserService::myOrders((int)$user->id, $page, 20, $filters);
+        View::display($res, 'console/orders', [
+            'title'       => '订单记录 - 头像引擎',
+            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser' => $user,
+            'list'        => $result['list'],
+            'pagination'  => $result['pagination'],
+            'filters'     => $filters,
+        ]);
+    }
+}
