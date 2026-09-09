@@ -60,18 +60,22 @@ window.PAGES.users = function (root) {
     root.innerHTML = '';
     // 工具栏
     const tb = el('div', { class: 'toolbar' });
-    tb.appendChild(el('input', { id: 'kw', placeholder: '用户名', value: state.keyword, oninput: e => state.keyword = e.target.value }));
-    tb.appendChild(el('select', { id: 'role', onchange: e => { state.role = e.target.value; state.page = 1; load(); } }, [
+    tb.appendChild(el('input', { id: 'kw', placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value }));
+    const roleSel = el('select', { id: 'role', onchange: e => { state.role = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: '' }, '全部角色'),
       el('option', { value: 'user' }, '用户'),
       el('option', { value: 'developer' }, '开发者'),
       el('option', { value: 'admin' }, '管理员'),
-    ]));
-    tb.appendChild(el('select', { id: 'st', onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
+    ]);
+    roleSel.value = state.role;
+    tb.appendChild(roleSel);
+    const stSel = el('select', { id: 'st', onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: '' }, '全部状态'),
       el('option', { value: '1' }, '正常'),
       el('option', { value: '0' }, '禁用'),
-    ]));
+    ]);
+    stSel.value = state.status;
+    tb.appendChild(stSel);
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
 
@@ -169,10 +173,10 @@ window.PAGES.users = function (root) {
 
 // ── 开发者 KEY ──────────────────────────────────────
 window.PAGES.keys = function (root) {
-  let state = { user_id: '', status: '', page: 1 };
+  let state = { keyword: '', status: '', page: 1 };
   async function load() {
     const params = new URLSearchParams({ page: state.page, per_page: 20 });
-    if (state.user_id) params.set('user_id', state.user_id);
+    if (state.keyword) params.set('keyword', state.keyword);
     if (state.status !== '') params.set('status', state.status);
     try {
       const data = await api('/keys?' + params);
@@ -182,14 +186,14 @@ window.PAGES.keys = function (root) {
   function render(data) {
     root.innerHTML = '';
     const tb = el('div', { class: 'toolbar' });
-    tb.appendChild(el('input', { placeholder: '用户 ID', value: state.user_id, oninput: e => state.user_id = e.target.value }));
+    tb.appendChild(el('input', { placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value }));
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
 
     const wrap = el('div', { class: 'card' });
     renderTable(wrap, [
       { key: 'id', label: 'ID' },
-      { key: 'user_id', label: '用户ID' },
+      { key: 'username', label: '用户', render: r => r.username || ('#' + r.user_id) },
       { key: 'api_key_masked', label: 'API Key' },
       { key: 'name', label: '名称' },
       { key: 'status', label: '状态', render: r => badge(r.status == 1 ? '正常' : '禁用', r.status == 1 ? 'success' : 'danger') },
@@ -234,10 +238,11 @@ window.PAGES.keys = function (root) {
 
 // ── 订单管理 ──────────────────────────────────────
 window.PAGES.orders = function (root) {
-  let state = { status: '', page: 1 };
+  let state = { status: '', keyword: '', page: 1 };
   async function load() {
     const params = new URLSearchParams({ page: state.page, per_page: 20 });
     if (state.status) params.set('status', state.status);
+    if (state.keyword.trim()) params.set('keyword', state.keyword.trim());
     try {
       const data = await api('/orders?' + params);
       render(data);
@@ -246,20 +251,24 @@ window.PAGES.orders = function (root) {
   function render(data) {
     root.innerHTML = '';
     const tb = el('div', { class: 'toolbar' });
-    tb.appendChild(el('select', { onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
+    const stSel = el('select', { onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: '' }, '全部状态'),
       el('option', { value: 'pending' }, '待审核'),
       el('option', { value: 'paid' }, '已支付'),
       el('option', { value: 'refunded' }, '已退款'),
       el('option', { value: 'closed' }, '已关闭'),
-    ]));
+    ]);
+    stSel.value = state.status;
+    tb.appendChild(stSel);
+    tb.appendChild(el('input', { placeholder: '订单号 / 用户名 / 邮箱 / 手机号', value: state.keyword, oninput: e => state.keyword = e.target.value }));
+    tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
 
     const wrap = el('div', { class: 'card' });
     renderTable(wrap, [
       { key: 'id', label: 'ID' },
       { key: 'order_no', label: '订单号' },
-      { key: 'user_id', label: '用户' },
+      { key: 'username', label: '用户', render: r => r.username || ('#' + r.user_id) },
       { key: 'product_name', label: '套餐' },
       { key: 'amount', label: '金额', render: r => '¥' + Number(r.amount).toFixed(2) },
       { key: 'points', label: '积分' },
@@ -395,10 +404,10 @@ window.PAGES.products = function (root) {
 
 // ── 积分流水 ──────────────────────────────────────
 window.PAGES.logs = function (root) {
-  let state = { user_id: '', type: '', page: 1 };
+  let state = { keyword: '', type: '', page: 1 };
   async function load() {
     const params = new URLSearchParams({ page: state.page, per_page: 20 });
-    if (state.user_id) params.set('user_id', state.user_id);
+    if (state.keyword.trim()) params.set('keyword', state.keyword.trim());
     if (state.type) params.set('type', state.type);
     try {
       const data = await api('/points/logs?' + params);
@@ -408,7 +417,7 @@ window.PAGES.logs = function (root) {
   function render(data) {
     root.innerHTML = '';
     const tb = el('div', { class: 'toolbar' });
-    tb.appendChild(el('input', { placeholder: '用户 ID', value: state.user_id, oninput: e => state.user_id = e.target.value }));
+    tb.appendChild(el('input', { placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value }));
     const sel = el('select', { onchange: e => { state.type = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: '' }, '全部类型'),
       el('option', { value: 'register' }, '注册赠送'),
@@ -418,6 +427,7 @@ window.PAGES.logs = function (root) {
       el('option', { value: 'admin_add' }, '管理员增加'),
       el('option', { value: 'admin_sub' }, '管理员扣减'),
     ]);
+    sel.value = state.type;
     tb.appendChild(sel);
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
@@ -425,7 +435,7 @@ window.PAGES.logs = function (root) {
     const wrap = el('div', { class: 'card' });
     renderTable(wrap, [
       { key: 'id', label: 'ID' },
-      { key: 'user_id', label: '用户' },
+      { key: 'username', label: '用户', render: r => r.username || ('#' + r.user_id) },
       { key: 'type', label: '类型' },
       { key: 'change', label: '变动', render: r => badge((r.change > 0 ? '+' : '') + r.change, r.change > 0 ? 'success' : 'danger') },
       { key: 'balance', label: '余额' },
@@ -443,10 +453,10 @@ window.PAGES.logs = function (root) {
 
 // ── 生成记录 ──────────────────────────────────────
 window.PAGES.generations = function (root) {
-  let state = { user_id: '', status: '', page: 1 };
+  let state = { keyword: '', status: '', page: 1 };
   async function load() {
     const params = new URLSearchParams({ page: state.page, per_page: 20 });
-    if (state.user_id) params.set('user_id', state.user_id);
+    if (state.keyword.trim()) params.set('keyword', state.keyword.trim());
     if (state.status) params.set('status', state.status);
     try {
       const data = await api('/generations?' + params);
@@ -456,21 +466,23 @@ window.PAGES.generations = function (root) {
   function render(data) {
     root.innerHTML = '';
     const tb = el('div', { class: 'toolbar' });
-    tb.appendChild(el('input', { placeholder: '用户 ID', value: state.user_id, oninput: e => state.user_id = e.target.value }));
-    tb.appendChild(el('select', { onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
+    tb.appendChild(el('input', { placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value }));
+    const stSel = el('select', { onchange: e => { state.status = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: '' }, '全部状态'),
       el('option', { value: 'pending' }, '等待中'),
       el('option', { value: 'processing' }, '处理中'),
       el('option', { value: 'success' }, '成功'),
       el('option', { value: 'failed' }, '失败'),
-    ]));
+    ]);
+    stSel.value = state.status;
+    tb.appendChild(stSel);
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
 
     const wrap = el('div', { class: 'card' });
     renderTable(wrap, [
       { key: 'id', label: 'ID' },
-      { key: 'user_id', label: '用户' },
+      { key: 'username', label: '用户', render: r => r.username || ('#' + r.user_id) },
       { key: 'key_id', label: 'KEY' },
       { key: 'avatar_id', label: '头像ID' },
       { key: 'cost_points', label: '消耗' },

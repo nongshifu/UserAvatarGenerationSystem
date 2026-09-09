@@ -15,7 +15,8 @@ use App\Services\OrderService;
 final class OrderController
 {
     /**
-     * GET /admin-api/orders?status=&pay_method=&page=
+     * GET /admin-api/orders?status=&pay_method=&keyword=&page=
+     * keyword 同时匹配：订单号 / 用户名 / 邮箱 / 手机号
      */
     public function index(Request $req, Response $res, array $params): void
     {
@@ -26,11 +27,63 @@ final class OrderController
         if ($pm = $req->queryGet('pay_method')) {
             $q->where('pay_method', (string)$pm);
         }
+
+        // 关键词：订单号 OR 用户名/邮箱/手机号
+        $keyword = trim((string)$req->queryGet('keyword', ''));
+        if ($keyword !== '') {
+            $orderRows = DB::table('orders')->select('id')->where('order_no', '%' . $keyword . '%', 'like')->all();
+            $orderIds  = array_map('intval', array_column($orderRows, 'id'));
+            $userRows  = DB::table('users')->select('id')
+                ->where('username', '%' . $keyword . '%', 'like')
+                ->orWhere('email', '%' . $keyword . '%', 'like')
+                ->orWhere('phone', '%' . $keyword . '%', 'like')
+                ->all();
+            $userIds = array_map('intval', array_column($userRows, 'id'));
+
+            $conds = [];
+            $binds = [];
+            if (!empty($orderIds)) {
+                $phs = [];
+                foreach ($orderIds as $i => $id) { $p = ':oid_' . $i; $phs[] = $p; $binds[$p] = $id; }
+                $conds[] = 'id IN (' . implode(',', $phs) . ')';
+            }
+            if (!empty($userIds)) {
+                $phs = [];
+                foreach ($userIds as $i => $id) { $p = ':uid_' . $i; $phs[] = $p; $binds[$p] = $id; }
+                $conds[] = 'user_id IN (' . implode(',', $phs) . ')';
+            }
+            if (empty($conds)) {
+                $q->whereRaw('1 = 0');
+            } else {
+                $q->whereRaw('(' . implode(' OR ', $conds) . ')', $binds);
+            }
+        }
+
         $result = $q->orderBy('id', 'DESC')->paginate(
             (int)$req->queryGet('page', 1),
             (int)$req->queryGet('per_page', 20)
         );
+        // 批量附加用户名
+        $this->attachUsername($result['list'], 'user_id');
         $res->json($result);
+    }
+
+    /** 批量给记录附加 username 字段（避免 N+1） */
+    private function attachUsername(array &$list, string $userIdKey): void
+    {
+        $uids = [];
+        foreach ($list as $row) {
+            if (!empty($row[$userIdKey])) $uids[(int)$row[$userIdKey]] = true;
+        }
+        if ($uids) {
+            $users = DB::table('users')->select('id', 'username')->whereIn('id', array_keys($uids))->all();
+            $map = [];
+            foreach ($users as $u) $map[(int)$u['id']] = (string)$u['username'];
+            foreach ($list as &$row) {
+                $row['username'] = $map[(int)($row[$userIdKey] ?? 0)] ?? '';
+            }
+            unset($row);
+        }
     }
 
     /**

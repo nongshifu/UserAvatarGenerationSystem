@@ -14,27 +14,51 @@ use App\Models\UserKey;
 final class KeyController
 {
     /**
-     * GET /admin-api/keys?user_id=&status=&page=
+     * GET /admin-api/keys?keyword=&status=&page=
+     * keyword 匹配用户名 / 邮箱 / 手机号
      */
     public function index(Request $req, Response $res, array $params): void
     {
         $q = DB::table('user_keys');
-        if ($uid = $req->queryGet('user_id')) {
-            $q->where('user_id', (int)$uid);
-        }
         if ($req->queryGet('status') !== null) {
             $q->where('status', (int)$req->queryGet('status'));
+        }
+        // 用户关键词
+        $keyword = trim((string)$req->queryGet('keyword', ''));
+        if ($keyword !== '') {
+            $userRows = DB::table('users')->select('id')
+                ->where('username', '%' . $keyword . '%', 'like')
+                ->orWhere('email', '%' . $keyword . '%', 'like')
+                ->orWhere('phone', '%' . $keyword . '%', 'like')
+                ->all();
+            $userIds = array_map('intval', array_column($userRows, 'id'));
+            if (empty($userIds)) {
+                $q->whereRaw('1 = 0');
+            } else {
+                $q->whereIn('user_id', $userIds);
+            }
         }
         $result = $q->orderBy('id', 'DESC')->paginate(
             (int)$req->queryGet('page', 1),
             (int)$req->queryGet('per_page', 20)
         );
-        // 脱敏：不返回明文 api_key
+        // 脱敏 + 附加用户名
+        $uids = [];
+        foreach ($result['list'] as $k) {
+            if (!empty($k['user_id'])) $uids[(int)$k['user_id']] = true;
+        }
+        $userMap = [];
+        if ($uids) {
+            $users = DB::table('users')->select('id', 'username')->whereIn('id', array_keys($uids))->all();
+            foreach ($users as $u) $userMap[(int)$u['id']] = (string)$u['username'];
+        }
         foreach ($result['list'] as &$k) {
             $apiKey = (string)$k['api_key'];
             $k['api_key_masked'] = $this->maskKey($apiKey);
+            $k['username'] = $userMap[(int)($k['user_id'] ?? 0)] ?? '';
             unset($k['api_key'], $k['api_key_hash']);
         }
+        unset($k);
         $res->json($result);
     }
 

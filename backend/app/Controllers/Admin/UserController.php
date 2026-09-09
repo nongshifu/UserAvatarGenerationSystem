@@ -21,10 +21,14 @@ final class UserController
     public function index(Request $req, Response $res, array $params): void
     {
         $q = DB::table('users');
-        $kw = (string)$req->queryGet('keyword', '');
+        $kw = trim((string)$req->queryGet('keyword', ''));
         if ($kw !== '') {
-            // 简单 LIKE（生产环境建议全文索引）
-            $q->where('username', "%{$kw}%", 'LIKE');
+            // 匹配用户名 / 邮箱 / 手机号
+            $q->whereRaw('(username LIKE :ukw OR email LIKE :ekw OR phone LIKE :pkw)', [
+                ':ukw' => '%' . $kw . '%',
+                ':ekw' => '%' . $kw . '%',
+                ':pkw' => '%' . $kw . '%',
+            ]);
         }
         if ($role = $req->queryGet('role')) {
             $q->where('role', (string)$role);
