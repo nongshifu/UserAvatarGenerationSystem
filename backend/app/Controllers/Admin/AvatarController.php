@@ -65,7 +65,7 @@ final class AvatarController
             $res->error(4004, '头像不存在', 404);
             return;
         }
-        $avatar->delete();
+        $avatar->deleteWithFiles();
         $adminPayload = $req->load('admin');
         AuditLogService::record($req, (int)$adminPayload['user_id'], 'avatar.delete', 'avatar', (int)$params['id'], '删除头像');
         $res->json(['deleted' => true]);

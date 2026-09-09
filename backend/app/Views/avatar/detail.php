@@ -22,6 +22,13 @@ $baseUrl = $siteName;
         <div style="margin-top:18px">
             <a href="<?= $e($img) ?>" class="btn btn-sm" download>下载</a>
             <a href="/console/generate" class="btn btn-sm btn-outline">我也生成</a>
+            <?php if ($currentUser && (int)($avatar['user_id'] ?? 0) === (int)$currentUser->id): ?>
+            <form method="post" action="/console/avatars/<?= (int)$avatar['id'] ?>/delete"
+                  onsubmit="return confirm('确认删除这张头像吗？删除后原图和结果图都会被清理，且无法恢复。');"
+                  style="display:inline;margin-left:8px">
+                <button type="submit" class="btn btn-sm" style="border-color:rgba(255,80,80,.5);color:#ff8a8a">删除</button>
+            </form>
+            <?php endif; ?>
         </div>
     </div>
 </section>

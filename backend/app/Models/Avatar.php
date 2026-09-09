@@ -6,6 +6,8 @@ namespace App\Models;
 use App\Core\DB;
 use App\Core\Model;
 use App\Core\RedisClient;
+use App\Core\Log;
+use App\Services\ObjectStorageService;
 
 class Avatar extends Model
 {
@@ -77,5 +79,34 @@ class Avatar extends Model
         DB::table($this->table)
             ->where($this->primaryKey, $this->getKey())
             ->update(['views' => ((int)$this->attributes['views']) + 1]);
+    }
+
+    /**
+     * 删除头像：先删 DB 记录，再清理物理文件（原图/结果图/缩略图）
+     * 文件清理失败不影响 DB 删除（打日志即可，避免脏数据残留）
+     */
+    public function deleteWithFiles(): bool
+    {
+        if (!$this->exists) {
+            return false;
+        }
+        $urls = [
+            (string)($this->attributes['origin_url'] ?? ''),
+            (string)($this->attributes['result_url'] ?? ''),
+            (string)($this->attributes['result_thumb_url'] ?? ''),
+        ];
+        // 先删库，再删文件（防止 DB 删除失败但文件已删的不一致）
+        $deleted = $this->delete();
+        foreach ($urls as $u) {
+            $u = trim($u);
+            if ($u !== '') {
+                try {
+                    ObjectStorageService::delete($u);
+                } catch (\Throwable $e) {
+                    Log::warning('avatar file delete failed', ['url' => $u, 'err' => $e->getMessage()]);
+                }
+            }
+        }
+        return $deleted;
     }
 }

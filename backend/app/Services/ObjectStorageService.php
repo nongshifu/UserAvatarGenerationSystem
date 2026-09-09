@@ -48,6 +48,42 @@ final class ObjectStorageService
     }
 
     /**
+     * 删除存储中的文件（按存储 URL）
+     * 仅支持本地存储；云存储待实现。文件不存在或删除失败不抛异常（返回 false）
+     */
+    public static function delete(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+        $driver = (string)Config::get('storage', 'driver', 'local');
+        // 非本地存储暂不支持删除（预留：对接 OSS DeleteObject 等）
+        if ($driver !== 'local') {
+            return false;
+        }
+        $base = (string)Config::get('storage', 'public_base', '/uploads');
+        $base = rtrim($base, '/');
+        // 只处理本站存储的 URL（以 public_base 开头或相对路径 /uploads/...）
+        $rel = '';
+        if (str_starts_with($url, $base . '/')) {
+            $rel = substr($url, strlen($base));
+        } elseif (str_starts_with($url, '/')) {
+            // 相对路径直接当 targetPath
+            $rel = $url;
+        } else {
+            // 外部 URL 不处理
+            return false;
+        }
+        $targetPath = ltrim($rel, '/');
+        $local = ROOT_PATH . '/../storage/uploads/' . $targetPath;
+        if (!is_file($local)) {
+            return false;
+        }
+        return @unlink($local);
+    }
+
+    /**
      * 本地存储：保存到 ROOT_PATH/../storage/uploads/{targetPath}
      * 由 Nginx 直接静态映射出 URL
      */

@@ -6,6 +6,7 @@ namespace App\Controllers\Web;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\View;
+use App\Models\Avatar;
 use App\Services\SiteSettingService;
 use App\Services\UserAuthService;
 use App\Services\UserService;
@@ -62,6 +63,28 @@ final class ConsoleController
             'list'         => $result['list'],
             'pagination'   => $result['pagination'],
         ]);
+    }
+
+    /** POST /console/avatars/{id}/delete  用户删除自己的头像 */
+    public function deleteAvatar(Request $req, Response $res, array $params): void
+    {
+        $user = $this->userOrFail($res);
+        if (!$user) {
+            return;
+        }
+        $avatar = Avatar::find((int)($params['id'] ?? 0));
+        if (!$avatar) {
+            $res->error(4004, '头像不存在', 404);
+            return;
+        }
+        // 权限校验：只能删除自己的头像
+        if ((int)$avatar->user_id !== (int)$user->id) {
+            $res->error(4003, '无权删除该头像', 403);
+            return;
+        }
+        $avatar->deleteWithFiles();
+        // 删除后回到「我的头像」页（携带已删除提示）
+        $res->redirect('/console/avatars?deleted=1');
     }
 
     /** GET /console/points （积分记录，支持搜索） */

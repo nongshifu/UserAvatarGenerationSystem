@@ -51,6 +51,7 @@ $router->post('/console/profile/phone-bind', [ProfileController::class, 'phoneBi
 $router->post('/console/profile/reset-code',     [ProfileController::class, 'resetCode']);
 $router->post('/console/profile/reset-password', [ProfileController::class, 'resetPassword']);
 $router->get ('/console/avatars',       [ConsoleController::class,  'avatars']);
+$router->post('/console/avatars/{id}/delete', [ConsoleController::class, 'deleteAvatar']);
 $router->get ('/console/generations',   [ConsoleController::class,  'generations']);
 $router->get ('/console/points',       [ConsoleController::class,  'points']);
 $router->get ('/console/orders',       [ConsoleController::class,  'orders']);
