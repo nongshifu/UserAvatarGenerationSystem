@@ -493,25 +493,61 @@ window.PAGES.generations = function (root) {
 
 // ── 头像池 ──────────────────────────────────────
 window.PAGES.avatars = function (root) {
-  let state = { scope: 'public', style_id: '', page: 1 };
-  async function load() {
-    const params = new URLSearchParams({ page: state.page, per_page: 24 });
-    const path = state.scope === 'public' ? '/avatars/public' : '/avatars';
-    if (state.style_id) params.set('style_id', state.style_id);
+  let state = { scope: 'all', style_id: '', keyword: '', date_from: '', date_to: '', page: 1, styles: [] };
+
+  // 初始化：加载风格列表（用于下拉展示中文名）
+  (async () => {
     try {
-      const data = await api(path + '?' + params);
+      const r = await api('/prompts');
+      state.styles = (r.styles || []).map(s => ({ id: s.id, name: s.name }));
+    } catch (e) { /* 风格加载失败不影响列表，只是不显示中文名 */ }
+    load();
+  })();
+
+  function buildParams() {
+    const p = new URLSearchParams({ page: state.page, per_page: 24 });
+    if (state.scope) p.set('scope', state.scope);
+    if (state.style_id) p.set('style_id', state.style_id);
+    if (state.keyword.trim()) p.set('keyword', state.keyword.trim());
+    if (state.date_from) p.set('date_from', state.date_from);
+    if (state.date_to) p.set('date_to', state.date_to);
+    return p;
+  }
+
+  async function load() {
+    try {
+      const data = await api('/avatars?' + buildParams());
       render(data);
     } catch (e) { toast(e.message, 'error'); }
   }
+
   function render(data) {
     root.innerHTML = '';
-    const tb = el('div', { class: 'toolbar' });
+    const tb = el('div', { class: 'toolbar', style: 'flex-wrap:wrap;gap:8px;align-items:center' });
+    // 范围
     tb.appendChild(el('select', { onchange: e => { state.scope = e.target.value; state.page = 1; load(); } }, [
-      el('option', { value: 'public' }, '公共池'),
       el('option', { value: 'all' }, '全部'),
+      el('option', { value: 'public' }, '公共池'),
+      el('option', { value: 'private' }, '非公共'),
     ]));
-    tb.appendChild(el('input', { placeholder: '风格 ID', value: state.style_id, oninput: e => state.style_id = e.target.value }));
+    // 风格下拉
+    const styleSel = el('select', { onchange: e => { state.style_id = e.target.value; } });
+    styleSel.appendChild(el('option', { value: '' }, '全部风格'));
+    state.styles.forEach(s => styleSel.appendChild(el('option', { value: String(s.id) }, s.name)));
+    tb.appendChild(styleSel);
+    // 用户搜索
+    const kw = el('input', { placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value });
+    tb.appendChild(kw);
+    // 日期范围
+    tb.appendChild(el('input', { type: 'date', value: state.date_from, onchange: e => state.date_from = e.target.value }));
+    tb.appendChild(el('span', { class: 'muted' }, '至'));
+    tb.appendChild(el('input', { type: 'date', value: state.date_to, onchange: e => state.date_to = e.target.value }));
+    // 操作按钮
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '筛选'));
+    tb.appendChild(el('button', { class: 'btn', onclick: () => {
+      state.scope = 'all'; state.style_id = ''; state.keyword = ''; state.date_from = ''; state.date_to = ''; state.page = 1;
+      load();
+    } }, '重置'));
     root.appendChild(tb);
 
     const wrap = el('div', { class: 'card' });
@@ -526,6 +562,9 @@ window.PAGES.avatars = function (root) {
         el('span', {}, '#' + av.id + ' '),
         badge(av.is_public == 1 ? '公共' : '私有', av.is_public == 1 ? 'success' : 'info'),
       ]);
+      if (av.style_name) {
+        meta.appendChild(el('span', { class: 'muted', style: 'margin-left:6px;font-size:12px' }, '· ' + av.style_name));
+      }
       card.appendChild(meta);
       card.appendChild(el('div', { style: 'padding:4px 8px 8px;display:flex;gap:4px' }, [
         el('button', { class: 'btn btn-sm', onclick: () => togglePublic(av) }, av.is_public == 1 ? '取消公共' : '设为公共'),
@@ -554,7 +593,7 @@ window.PAGES.avatars = function (root) {
     try { await api('/avatars/' + av.id, { method: 'DELETE' }); toast('已删除', 'success'); load(); }
     catch (e) { toast(e.message, 'error'); }
   }
-  load();
+  // load() 在风格列表加载后自动调用
 };
 
 // ── 系统设置：按模块拆分为独立左侧菜单（站点/积分/API生图/审核/邮箱/短信） ──
