@@ -87,7 +87,9 @@ class Avatar extends Model
      */
     public function deleteWithFiles(): bool
     {
-        if (!$this->exists) {
+        // 注意：$exists 是基类 private 属性，子类不能直接访问（会触发 __get 返回 null），
+        // 必须通过基类暴露的 isExists() 方法判断
+        if (!$this->isExists()) {
             return false;
         }
         $urls = [
