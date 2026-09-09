@@ -3,6 +3,7 @@
 $active = $active ?? '';
 $uid = $currentUser ? (int)$currentUser->id : 0;
 $uname = (string)($currentUser->username ?? 'U');
+$userPoints = $currentUser ? (int)($currentUser->points ?? 0) : 0;
 $avatarLetter = mb_substr($uname, 0, 1, 'UTF-8');
 $sideIcon = function (string $name): string {
     $paths = [
@@ -27,7 +28,7 @@ $sideIcon = function (string $name): string {
             <div class="cs-name"><?= $e($uname) ?></div>
             <div class="cs-points">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                余额 <?= $e((string)($balance ?? 0)) ?> 积分
+                余额 <?= number_format($userPoints) ?> 积分
             </div>
         </div>
     </div>
