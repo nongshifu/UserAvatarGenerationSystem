@@ -83,8 +83,12 @@ final class ConsoleController
             return;
         }
         $avatar->deleteWithFiles();
-        // 删除后回到「我的头像」页（携带已删除提示）
-        $res->redirect('/console/avatars?deleted=1');
+        // AJAX 请求返回 JSON；普通 form 提交则跳回列表
+        if (strtolower((string)$req->header('X-Requested-With')) === 'xmlhttprequest') {
+            $res->json(['deleted' => true]);
+        } else {
+            $res->redirect('/console/avatars?deleted=1');
+        }
     }
 
     /** GET /console/points （积分记录，支持搜索） */
