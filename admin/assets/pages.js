@@ -525,15 +525,18 @@ window.PAGES.avatars = function (root) {
     root.innerHTML = '';
     const tb = el('div', { class: 'toolbar', style: 'flex-wrap:wrap;gap:8px;align-items:center' });
     // 范围
-    tb.appendChild(el('select', { onchange: e => { state.scope = e.target.value; state.page = 1; load(); } }, [
+    const scopeSel = el('select', { onchange: e => { state.scope = e.target.value; state.page = 1; load(); } }, [
       el('option', { value: 'all' }, '全部'),
       el('option', { value: 'public' }, '公共池'),
       el('option', { value: 'private' }, '非公共'),
-    ]));
+    ]);
+    scopeSel.value = state.scope;
+    tb.appendChild(scopeSel);
     // 风格下拉
     const styleSel = el('select', { onchange: e => { state.style_id = e.target.value; } });
     styleSel.appendChild(el('option', { value: '' }, '全部风格'));
     state.styles.forEach(s => styleSel.appendChild(el('option', { value: String(s.id) }, s.name)));
+    styleSel.value = state.style_id;
     tb.appendChild(styleSel);
     // 用户搜索
     const kw = el('input', { placeholder: '用户名/邮箱/手机号', value: state.keyword, oninput: e => state.keyword = e.target.value });
