@@ -25,20 +25,67 @@ final class DashboardController
             'user_total'      => (int)DB::table('users')->count(),
         ];
 
-        // 近 7 天生成趋势
-        $rows = DB::raw(
-            "SELECT DATE(created_at) AS d, COUNT(*) AS c
-             FROM generation_records
-             WHERE created_at >= ?
-             GROUP BY DATE(created_at)
-             ORDER BY d ASC",
-            [date('Y-m-d', strtotime('-6 days')) . ' 00:00:00']
-        )->fetchAll();
-        $trend = [];
-        foreach ($rows as $r) {
-            $trend[] = ['date' => $r['d'], 'count' => (int)$r['c']];
-        }
+        // 近 90 天每日序列（前端本地切换 7/30/90 范围，无需重新请求）
+        $days = 90;
+        $from = date('Y-m-d 00:00:00', strtotime('-' . ($days - 1) . ' days'));
 
-        $res->json(['stat' => $stat, 'trend_7d' => $trend]);
+        // 连续日期骨架（补齐无数据的日期）
+        $dates = [];
+        for ($t = strtotime(date('Y-m-d', strtotime($from))); $t <= strtotime($today); $t = strtotime('+1 day', $t)) {
+            $dates[date('Y-m-d', $t)] = true;
+        }
+        $fill = function (array $rows, array $defaults) use ($dates): array {
+            $byDay = [];
+            foreach ($rows as $r) {
+                $byDay[(string)$r['d']] = $r;
+            }
+            $out = [];
+            foreach (array_keys($dates) as $d) {
+                $row = ['date' => $d];
+                foreach ($defaults as $k => $zero) {
+                    $row[$k] = isset($byDay[$d]) ? (is_float($zero) ? (float)$byDay[$d][$k] : (int)$byDay[$d][$k]) : $zero;
+                }
+                $out[] = $row;
+            }
+            return $out;
+        };
+
+        // 生成记录：每日总数 / 成功 / 失败
+        $series['generations'] = $fill(DB::raw(
+            "SELECT DATE(created_at) AS d, COUNT(*) AS total,
+                    COALESCE(SUM(status = 'success'), 0) AS success,
+                    COALESCE(SUM(status = 'failed'), 0) AS failed
+             FROM generation_records WHERE created_at >= ?
+             GROUP BY DATE(created_at)",
+            [$from]
+        )->fetchAll(), ['total' => 0, 'success' => 0, 'failed' => 0]);
+
+        // 用户注册：每日注册数
+        $series['registers'] = $fill(DB::raw(
+            "SELECT DATE(created_at) AS d, COUNT(*) AS total
+             FROM users WHERE created_at >= ?
+             GROUP BY DATE(created_at)",
+            [$from]
+        )->fetchAll(), ['total' => 0]);
+
+        // 充值记录：每日已支付金额 / 笔数
+        $series['recharges'] = $fill(DB::raw(
+            "SELECT DATE(paid_at) AS d, COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS amount
+             FROM orders WHERE status = 'paid' AND paid_at >= ?
+             GROUP BY DATE(paid_at)",
+            [$from]
+        )->fetchAll(), ['cnt' => 0, 'amount' => 0.0]);
+
+        // 全站积分流水：每日收入 / 支出
+        $series['points'] = $fill(DB::raw(
+            "SELECT DATE(created_at) AS d,
+                    COALESCE(SUM(CASE WHEN `change` > 0 THEN `change` ELSE 0 END), 0) AS income,
+                    COALESCE(SUM(CASE WHEN `change` < 0 THEN -`change` ELSE 0 END), 0) AS expense
+             FROM point_logs WHERE created_at >= ?
+             GROUP BY DATE(created_at)",
+            [$from]
+        )->fetchAll(), ['income' => 0, 'expense' => 0]);
+
+        $res->json(['stat' => $stat, 'series' => $series]);
     }
 }

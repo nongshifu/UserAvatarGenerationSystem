@@ -82,7 +82,9 @@ $router->group('/admin-api', function (\App\Core\Router $r) use ($adminAuth): vo
 
     // 提示词管理
     $r->get ('/prompts',               [PromptController::class, 'index'],          [$adminAuth]);
+    $r->post('/prompts/styles',        [PromptController::class, 'storeStyle'],     [$adminAuth]);
     $r->put ('/prompts/styles/{id}',   [PromptController::class, 'updateStyle'],    [$adminAuth]);
+    $r->delete('/prompts/styles/{id}', [PromptController::class, 'destroyStyle'],   [$adminAuth]);
     $r->post('/prompts/styles/{id}/reset', [PromptController::class, 'resetStyle'], [$adminAuth]);
     $r->post('/prompts/reset-all',     [PromptController::class, 'resetAll'],       [$adminAuth]);
     $r->put ('/prompts/template',      [PromptController::class, 'updateTemplate'], [$adminAuth]);

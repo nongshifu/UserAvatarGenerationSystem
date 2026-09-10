@@ -1,4 +1,15 @@
 <?php $active='generate'; include __DIR__ . '/../_partials/header.php'; ?>
+<style>
+.history-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.history-row{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.history-row::-webkit-scrollbar{height:6px}
+.history-row::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+.history-thumb{position:relative;flex:0 0 auto;width:76px;height:76px;padding:0;border-radius:12px;overflow:hidden;border:2px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);cursor:pointer;scroll-snap-align:start;transition:border-color .15s,box-shadow .15s,transform .15s}
+.history-thumb img{width:100%;height:100%;object-fit:cover;display:block;background:rgba(0,0,0,.3)}
+.history-thumb:hover{border-color:rgba(139,115,255,.7);transform:translateY(-2px)}
+.history-thumb.active{border-color:#8b73ff;box-shadow:0 0 0 3px rgba(123,92,255,.3)}
+.history-thumb.active::after{content:'✓';position:absolute;top:4px;right:4px;width:20px;height:20px;line-height:20px;text-align:center;font-size:.72rem;border-radius:50%;background:linear-gradient(135deg,#7b5cff,#00d4ff);color:#fff;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+</style>
 <section class="container">
     <div class="console-layout">
         <?php include __DIR__ . '/../_partials/console_side.php'; ?>
@@ -15,6 +26,7 @@
                     <label>上传照片</label>
                     <div class="uploader" id="uploader">
                         <input type="file" name="file" id="fileInput" accept="image/jpeg,image/png,image/webp" hidden>
+                        <input type="hidden" name="image" id="imageInput">
                         <div class="uploader-empty" id="uploaderEmpty">
                             <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:.7;margin-bottom:8px">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -28,12 +40,28 @@
                             <img id="previewImg" alt="已选照片预览">
                             <div class="uploader-meta">
                                 <div class="uploader-name" id="fileName"></div>
-                                <div class="uploader-hint">图片已就绪，可在下方选择风格后生成；如需更换请点击右侧按钮</div>
+                                <div class="uploader-hint" id="uploaderHint">图片已就绪，可在下方选择风格后生成；如需更换请点击右侧按钮</div>
                                 <button type="button" class="btn btn-sm" id="reselectBtn">重新选择</button>
                             </div>
                         </div>
                     </div>
                 </div>
+                <?php if (!empty($historyImages)): ?>
+                <div class="card" style="margin-bottom:16px">
+                    <div class="history-head">
+                        <label style="margin:0">历史上传</label>
+                        <span class="muted" style="font-size:.8rem">点击可直接复用，无需重新上传</span>
+                    </div>
+                    <div class="history-row" id="historyRow">
+                        <?php foreach ($historyImages as $hurl): ?>
+                        <button type="button" class="history-thumb" data-url="<?= $e($hurl) ?>" title="使用这张照片">
+                            <img src="<?= $e($hurl) ?>" alt="历史上传照片" loading="lazy"
+                                 onerror="this.closest('.history-thumb').remove()">
+                        </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
                 <div class="card" style="margin-bottom:16px">
                     <label>风格</label>
                     <div class="radio-pills">
@@ -73,8 +101,12 @@
     var fileName = document.getElementById('fileName');
     var reselectBtn = document.getElementById('reselectBtn');
     var form = document.getElementById('genForm');
+    var imageInput = document.getElementById('imageInput');
+    var historyRow = document.getElementById('historyRow');
+    var uploaderHint = document.getElementById('uploaderHint');
     var currentFile = null;
     var previewUrl = null;
+    var historyUrl = null;
 
     // 参考图压缩参数：最长边限制 + JPEG 质量（图生图无需原图分辨率）
     var MAX_DIM = 1536;
@@ -83,14 +115,69 @@
 
     function pick() { input.click(); }
 
+    var DEFAULT_HINT = '图片已就绪，可在下方选择风格后生成；如需更换请点击右侧按钮';
+
     function setPreview(url, name, sizeText) {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         previewUrl = url;
         previewImg.src = url;
         fileName.textContent = name + '（' + sizeText + '）';
+        uploaderHint.textContent = DEFAULT_HINT;
         emptyBox.hidden = true;
         previewBox.hidden = false;
     }
+
+    // ── 历史上传图片快捷选择 ──
+    function markHistoryActive(activeBtn) {
+        if (!historyRow) return;
+        var btns = historyRow.querySelectorAll('.history-thumb');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].classList.toggle('active', btns[i] === activeBtn);
+        }
+    }
+
+    function applySelectedImage(url, label) {
+        historyUrl = url;
+        imageInput.value = url;
+        currentFile = null;
+        input.value = '';
+        if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+        previewImg.src = url;
+        fileName.textContent = label;
+        uploaderHint.textContent = '已选择「' + label + '」，可在下方选择风格后点击确认生成；如需更换请点击右侧按钮';
+        emptyBox.hidden = true;
+        previewBox.hidden = false;
+    }
+
+    function selectHistory(url, btn) {
+        if (!url) return;
+        applySelectedImage(url, '历史上传照片');
+        markHistoryActive(btn);
+    }
+
+    if (historyRow) {
+        historyRow.addEventListener('click', function (e) {
+            var btn = e.target.closest('.history-thumb');
+            if (btn) selectHistory(btn.getAttribute('data-url') || '', btn);
+        });
+    }
+
+    // 支持 /console/generate?use_image=xxx：
+    // 头像详情页「用原图重新生成」带原图跳转过来，自动选中，仍需手动点击「确认生成」
+    (function () {
+        var useImg = '';
+        try { useImg = (new URLSearchParams(location.search).get('use_image') || '').trim(); } catch (err) { return; }
+        if (!useImg || !/^(https?:\/\/|\/)/i.test(useImg)) return;
+        var matchedBtn = null;
+        if (historyRow) {
+            var thumbs = historyRow.querySelectorAll('.history-thumb');
+            for (var i = 0; i < thumbs.length; i++) {
+                if (thumbs[i].getAttribute('data-url') === useImg) { matchedBtn = thumbs[i]; break; }
+            }
+        }
+        applySelectedImage(useImg, matchedBtn ? '历史上传照片' : '原始照片');
+        markHistoryActive(matchedBtn);
+    })();
 
     function handleFile(file) {
         if (!file) return;
@@ -104,6 +191,10 @@
 
         compressImage(file).then(function (result) {
             currentFile = result.blob;
+            // 选择了本地文件，取消历史图选中状态
+            historyUrl = null;
+            imageInput.value = '';
+            markHistoryActive(null);
             // 用压缩后的文件替换 input 内容，表单原生提交即上传压缩图
             try {
                 var dt = new DataTransfer();
@@ -182,6 +273,9 @@
         e.stopPropagation();
         input.value = '';
         currentFile = null;
+        historyUrl = null;
+        imageInput.value = '';
+        markHistoryActive(null);
         previewImg.src = '';
         previewBox.hidden = true;
         emptyBox.hidden = false;
@@ -201,13 +295,14 @@
     });
 
     form.addEventListener('submit', function (e) {
-        if (!currentFile) {
+        if (!currentFile && !historyUrl) {
             e.preventDefault();
-            alert('请先上传一张照片');
+            alert('请先上传一张照片，或从历史上传中选择');
             return;
         }
         // DataTransfer 不被支持时的兜底：改用 FormData 用压缩文件提交
-        if ((!input.files || input.files.length === 0) && window.FormData) {
+        // （历史图选中时 currentFile 为空，走原生提交，由隐藏 image 字段传 URL）
+        if (currentFile && (!input.files || input.files.length === 0) && window.FormData) {
             e.preventDefault();
             var fd = new FormData(form);
             fd.set('file', currentFile, currentFile.name);

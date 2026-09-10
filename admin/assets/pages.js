@@ -5,7 +5,7 @@ window.PAGES = {};
 
 // ── 仪表盘 ──────────────────────────────────────
 window.PAGES.dashboard = async function (root) {
-  root.innerHTML = '<div class="stat-grid" id="stat"></div><div class="card"><div class="card-title">近 7 天生成趋势</div><div id="trend"></div></div>';
+  root.innerHTML = '<div class="stat-grid" id="stat"></div><div class="chart-grid" id="charts"></div>';
   // 注意：多标签下面板常驻 DOM，子元素查找必须限定在 root 内，避免命中其他标签的同 ID 元素
   try {
     const data = await api('/dashboard');
@@ -26,18 +26,84 @@ window.PAGES.dashboard = async function (root) {
         el('div', { class: 'value' }, String(val)),
       ]));
     });
-    const trendEl = root.querySelector('#trend');
-    if (data.trend_7d && data.trend_7d.length) {
-      const max = Math.max(...data.trend_7d.map(t => t.count), 1);
-      trendEl.appendChild(el('div', { class: 'stat-grid' },
-        data.trend_7d.map(t => el('div', { class: 'stat-card' }, [
-          el('div', { class: 'label' }, t.date),
-          el('div', { class: 'value' }, String(t.count)),
-        ]))
-      ));
-    } else {
-      trendEl.appendChild(el('div', { class: 'muted' }, '暂无数据'));
-    }
+
+    // ── 全站走势图表（4 张卡片）──
+    const charts = root.querySelector('#charts');
+    const empty = { generations: [], registers: [], recharges: [], points: [] };
+    const series = Object.assign({}, empty, data.series || {});
+    const chartCard = (title, mountEl) => el('div', { class: 'chart-card' }, [
+      el('div', { class: 'chart-head' }, title),
+      mountEl,
+    ]);
+
+    // 生成记录：生成数 / 成功 / 失败
+    const gBody = el('div');
+    mountChart(gBody, {
+      series: series.generations,
+      ssKey: 'ad_chart_generations',
+      metrics: {
+        total:   { label: '生成数', color: '--primary', type: 'line' },
+        success: { label: '成功',   color: '--success', type: 'bar' },
+        failed:  { label: '失败',   color: '--danger',  type: 'bar' },
+      },
+      summary: d => {
+        let t = 0, ok = 0, fail = 0;
+        d.forEach(r => { t += r.total; ok += r.success; fail += r.failed; });
+        const rate = t > 0 ? Math.round(ok / t * 100) : 0;
+        return `合计 <b>${t}</b> · 成功 <b>${ok}</b> · 失败 <b>${fail}</b> · 成功率 <b>${rate}%</b>`;
+      },
+    });
+    charts.appendChild(chartCard('生成记录', gBody));
+
+    // 用户注册：注册数
+    const rBody = el('div');
+    mountChart(rBody, {
+      series: series.registers,
+      ssKey: 'ad_chart_registers',
+      metrics: { total: { label: '注册数', color: '--primary', type: 'line' } },
+      summary: d => {
+        let t = 0;
+        d.forEach(r => { t += r.total; });
+        return `期间新增注册 <b>${t}</b> 人`;
+      },
+    });
+    charts.appendChild(chartCard('用户注册', rBody));
+
+    // 充值记录：充值额（曲线）/ 笔数（柱）
+    const pBody = el('div');
+    mountChart(pBody, {
+      series: series.recharges,
+      ssKey: 'ad_chart_recharges',
+      metrics: {
+        amount: { label: '充值额', color: '--success', type: 'line', money: true },
+        cnt:    { label: '充值笔数', color: '--primary', type: 'bar' },
+      },
+      summary: d => {
+        let amt = 0, c = 0;
+        d.forEach(r => { amt += Number(r.amount); c += r.cnt; });
+        return `期间充值 <b>¥${amt.toFixed(2)}</b> · 共 <b>${c}</b> 笔`;
+      },
+    });
+    charts.appendChild(chartCard('充值记录', pBody));
+
+    // 全站积分流水：收入 / 支出 / 净变动
+    const ptBody = el('div');
+    mountChart(ptBody, {
+      series: series.points,
+      ssKey: 'ad_chart_points',
+      metrics: {
+        income:  { label: '收入',   color: '--success', type: 'bar' },
+        expense: { label: '支出',   color: '--danger',  type: 'bar' },
+        net:     { label: '净变动', color: '--primary', type: 'bar', sign: true },
+      },
+      summary: d => {
+        let inc = 0, exp = 0;
+        d.forEach(r => { inc += r.income; exp += r.expense; });
+        const net = inc - exp;
+        return `收入 <b>+${inc}</b> · 支出 <b>-${exp}</b> · 净变动 <b>${net >= 0 ? '+' : ''}${net}</b>`;
+      },
+    });
+    charts.appendChild(chartCard('积分流水', ptBody));
   } catch (e) {
     root.appendChild(el('div', { class: 'card' }, '加载失败：' + esc(e.message)));
   }
@@ -479,6 +545,40 @@ window.PAGES.generations = function (root) {
     tb.appendChild(el('button', { class: 'btn-primary', onclick: () => { state.page = 1; load(); } }, '搜索'));
     root.appendChild(tb);
 
+    // avatar_id => {result_url, result_thumb_url}；缺失 = 头像已被删除
+    const avatarMap = data.avatars || {};
+    const miniPh = (text, deleted, title) => {
+      const p = el('span', { class: 'gen-mini-ph' + (deleted ? ' deleted' : '') }, text);
+      if (title) p.title = title;
+      return p;
+    };
+    const buildImages = r => {
+      const imgs = [];
+      if (r.origin_image_url) imgs.push({ src: r.origin_image_url, label: '原图' });
+      const av = r.avatar_id ? avatarMap[Number(r.avatar_id)] : null;
+      if (av) imgs.push({ src: av.result_url || av.result_thumb_url, label: '生成图' });
+      return imgs;
+    };
+    const miniThumb = (r, which) => {
+      // which: 'origin' | 'result'
+      const aid = r.avatar_id ? Number(r.avatar_id) : 0;
+      const av = aid ? avatarMap[aid] : null;
+      if (which === 'origin') {
+        if (!r.origin_image_url) return miniPh('—', false, '无原图');
+        const im = el('img', { src: r.origin_image_url, class: 'gen-mini-thumb', alt: '原图', title: '点击预览原图' });
+        im.addEventListener('click', () => openImageViewer({ images: buildImages(r), start: 0 }));
+        im.addEventListener('error', () => im.replaceWith(miniPh('—', false, '原图已缺失')));
+        return im;
+      }
+      // 生成图
+      if (r.status !== 'success' || !aid) return miniPh(r.status === 'failed' ? '✕' : '⏳', false, r.status === 'failed' ? '生成失败' : '生成中');
+      if (!av) return miniPh('已删除', true, '头像已被删除');
+      const im = el('img', { src: av.result_thumb_url || av.result_url, class: 'gen-mini-thumb', alt: '生成图', title: '点击预览生成图' });
+      im.addEventListener('click', () => openImageViewer({ images: buildImages(r), start: r.origin_image_url ? 1 : 0 }));
+      im.addEventListener('error', () => im.replaceWith(miniPh('已删除', true, '头像已被删除')));
+      return im;
+    };
+
     const wrap = el('div', { class: 'card' });
     renderTable(wrap, [
       { key: 'id', label: 'ID' },
@@ -493,6 +593,10 @@ window.PAGES.generations = function (root) {
       } },
       { key: 'error_msg', label: '错误' },
       { key: 'created_at', label: '时间' },
+      { key: 'imgs', label: '图片', render: r => el('div', { style: 'display:flex;gap:6px;align-items:center' }, [
+          miniThumb(r, 'origin'),
+          miniThumb(r, 'result'),
+        ]) },
     ], data.list);
     root.appendChild(wrap);
 
@@ -572,7 +676,14 @@ window.PAGES.avatars = function (root) {
     }
     data.list.forEach(av => {
       const card = el('div', { class: 'avatar-card' });
-      card.appendChild(el('img', { src: av.result_thumb_url || av.result_url, loading: 'lazy' }));
+      const im = el('img', { src: av.result_thumb_url || av.result_url, loading: 'lazy', title: '点击放大预览' });
+      // 预览：生成图 + 参考原图对比（原图缺失时只展示生成图）
+      im.addEventListener('click', () => {
+        const imgs = [{ src: av.result_url || av.result_thumb_url, label: '生成图' }];
+        if (av.origin_url) imgs.push({ src: av.origin_url, label: '参考原图' });
+        openImageViewer({ images: imgs, start: 0 });
+      });
+      card.appendChild(im);
       const meta = el('div', { class: 'meta' }, [
         el('span', {}, '#' + av.id + ' '),
         badge(av.is_public == 1 ? '公共' : '私有', av.is_public == 1 ? 'success' : 'info'),
@@ -885,15 +996,60 @@ window.PAGES.prompts = async function (root) {
   tplCard.appendChild(tplBtns);
   root.appendChild(tplCard);
 
-  // ── 各风格提示词 ──
+  // ── 各风格提示词（动态：新增 / 改名 / 排序 / 停用 / 删除） ──
+  const styleHead = el('div', { class: 'toolbar' });
+  styleHead.appendChild(el('div', { class: 'muted', style: 'flex:1' }, '风格类型按排序权重升序展示在前台生成页；停用后用户不可见，但历史生成记录不受影响。'));
+  styleHead.appendChild(el('button', {
+    class: 'btn btn-primary',
+    onclick: async () => {
+      const values = await formModal({
+        title: '新增风格类型',
+        large: true,
+        okText: '创建',
+        fields: [
+          { name: 'name', label: '风格名称', type: 'text', required: true, placeholder: '如：吉卜力风、3D 盲盒、国风手绘' },
+          { name: 'cost_points', label: '每次生成消耗（积分，0 = 使用全局默认消耗）', type: 'number', value: 0, min: 0 },
+          { name: 'sort', label: '排序权重（数字越小越靠前，留空自动排到末尾）', type: 'number', placeholder: '自动' },
+          { name: 'status', label: '启用（前台生成页立即可见）', type: 'switch', value: 1 },
+          { name: 'prompt', label: '提示词（发送给 AI 的核心指令，英文效果最佳）', type: 'textarea', required: true, placeholder: 'Transform this portrait photo into ...' },
+        ],
+      });
+      if (!values) return;
+      try {
+        await api('/prompts/styles', { method: 'POST', body: values });
+        toast('风格已创建', 'success');
+        window.PAGES.prompts(root);
+      } catch (e) { toast(e.message, 'error'); }
+    },
+  }, '＋ 新增风格'));
+  root.appendChild(styleHead);
+
   data.styles.forEach(s => {
     const card = el('div', { class: 'card' });
     const title = el('div', { class: 'card-title', style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, [
-      el('span', {}, s.name),
+      el('span', {}, '#' + s.id),
       s.customized ? badge('提示词已自定义', 'warning') : badge('默认预设', 'info'),
       !s.is_builtin ? badge('自定义风格', 'default') : null,
+      s.status != 1 ? badge('已停用', 'danger') : null,
     ].filter(Boolean));
     card.appendChild(title);
+
+    // 名称 / 排序 / 状态
+    const nameInput = el('input', { value: s.name, maxlength: '50', style: 'width:200px;font-weight:600' });
+    const sortInput = el('input', { type: 'number', value: s.sort, min: '0', style: 'width:90px' });
+    const statusSel = el('select', { style: 'width:110px' }, [
+      el('option', { value: '1' }, '启用'),
+      el('option', { value: '0' }, '停用'),
+    ]);
+    statusSel.value = String(s.status);
+    card.appendChild(el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:10px 12px;background:var(--card-2);border:1px solid var(--border);border-radius:8px;flex-wrap:wrap' }, [
+      el('label', { style: 'margin:0;flex-shrink:0;font-weight:600' }, '名称'),
+      nameInput,
+      el('label', { style: 'margin:0 0 0 8px;flex-shrink:0;font-weight:600' }, '排序权重'),
+      sortInput,
+      el('label', { style: 'margin:0 0 0 8px;flex-shrink:0;font-weight:600' }, '状态'),
+      statusSel,
+    ]));
 
     // 积分消耗设置行
     const costInput = el('input', { type: 'number', min: '0', value: s.cost_points, style: 'width:100px' });
@@ -909,13 +1065,29 @@ window.PAGES.prompts = async function (root) {
     card.appendChild(area);
 
     const btns = el('div', { style: 'margin-top:10px;display:flex;gap:8px;justify-content:flex-end;align-items:center' });
-    btns.appendChild(el('span', { class: 'muted', style: 'margin-right:auto;font-size:12px' }, '提示词作为核心指令发送给 AI，积分价格即时生效'));
+    btns.appendChild(el('span', { class: 'muted', style: 'margin-right:auto;font-size:12px' }, '保存后立即生效；停用或删除不影响已有生成记录'));
+    btns.appendChild(el('button', {
+      class: 'btn btn-danger',
+      onclick: async () => {
+        const ok = await confirmModal({
+          title: '删除风格「' + s.name + '」',
+          message: '删除后前台生成页将不再显示该风格，且操作不可恢复（历史生成记录会保留，查看历史不受影响）。确定删除？',
+          okText: '删除', danger: true,
+        });
+        if (!ok) return;
+        try {
+          await api('/prompts/styles/' + s.id, { method: 'DELETE' });
+          toast('风格已删除', 'success');
+          window.PAGES.prompts(root);
+        } catch (e) { toast(e.message, 'error'); }
+      },
+    }, '删除风格'));
     btns.appendChild(el('button', {
       class: 'btn',
       onclick: async () => {
         const ok = await confirmModal({
           title: '重置「' + s.name + '」提示词',
-          message: s.is_builtin ? '恢复为该风格的系统内置预设？积分价格不受影响。' : '该风格为自定义风格，将恢复为通用卡通预设，确定？',
+          message: s.is_builtin ? '恢复为该风格的系统内置预设？名称、积分价格、排序不受影响。' : '该风格为自定义风格，将恢复为通用卡通预设，确定？',
           okText: '重置',
         });
         if (!ok) return;
@@ -926,12 +1098,26 @@ window.PAGES.prompts = async function (root) {
     btns.appendChild(el('button', {
       class: 'btn btn-primary',
       onclick: async () => {
-        if (!area.value.trim()) { toast('提示词不能为空', 'error'); return; }
+        const name = nameInput.value.trim();
+        if (!name) { toast('风格名称不能为空', 'error'); nameInput.focus(); return; }
+        if (!area.value.trim()) { toast('提示词不能为空', 'error'); area.focus(); return; }
         const cost = parseInt(costInput.value, 10);
         if (isNaN(cost) || cost < 0) { toast('积分消耗须为不小于 0 的整数', 'error'); costInput.focus(); return; }
+        const sortVal = sortInput.value === '' ? null : parseInt(sortInput.value, 10);
+        if (sortVal !== null && (isNaN(sortVal) || sortVal < 0)) { toast('排序权重须为不小于 0 的整数', 'error'); sortInput.focus(); return; }
         try {
-          await api('/prompts/styles/' + s.id, { method: 'PUT', body: { prompt: area.value.trim(), cost_points: cost } });
-          toast('已保存（提示词 + ' + cost + ' 积分/次）', 'success');
+          await api('/prompts/styles/' + s.id, {
+            method: 'PUT',
+            body: {
+              name,
+              prompt: area.value.trim(),
+              cost_points: cost,
+              sort: sortVal,
+              status: parseInt(statusSel.value, 10),
+            },
+          });
+          toast('已保存', 'success');
+          window.PAGES.prompts(root);
         } catch (e) { toast(e.message, 'error'); }
       },
     }, '保存'));

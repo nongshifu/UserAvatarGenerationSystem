@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers\Web;
 
+use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\View;
@@ -47,9 +48,38 @@ final class GenerateController
             'styles'      => $dims['styles'],
             'colors'      => $dims['colors'],
             'shapes'      => $dims['shapes'],
+            'historyImages' => $this->historyImages((int)$user->id),
             'needPhoneVerify' => \App\Services\SmsService::forceVerify() && (int)($user->phone_verified ?? 0) !== 1,
             'error'       => '',
         ]);
+    }
+
+    /**
+     * 当前用户最近上传过的原图（去重，最新在前）
+     * 用于生成页「历史上传」快捷选择，无需再次上传
+     * @return string[]
+     */
+    private function historyImages(int $userId, int $limit = 12): array
+    {
+        $rows = DB::table('generation_records')
+            ->select('origin_image_url')
+            ->where('user_id', $userId)
+            ->whereRaw("origin_image_url <> ''")
+            ->orderBy('id', 'DESC')
+            ->limit(60)
+            ->all();
+        $urls = [];
+        foreach ($rows as $row) {
+            $url = trim((string)($row['origin_image_url'] ?? ''));
+            if ($url === '' || isset($urls[$url])) {
+                continue;
+            }
+            $urls[$url] = true;
+            if (count($urls) >= $limit) {
+                break;
+            }
+        }
+        return array_keys($urls);
     }
 
     /** POST /console/generate */
@@ -160,6 +190,7 @@ final class GenerateController
             'styles'      => $dims['styles'],
             'colors'      => $dims['colors'],
             'shapes'      => $dims['shapes'],
+            'historyImages' => $this->historyImages((int)$user->id),
             'error'       => $error,
         ]);
     }

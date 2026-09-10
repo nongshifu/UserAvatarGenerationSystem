@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers\Web;
 
+use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\View;
@@ -112,6 +113,7 @@ final class ConsoleController
             'list'        => $result['list'],
             'pagination'  => $result['pagination'],
             'filters'     => $filters,
+            'chartSeries' => UserService::pointDailySeries((int)$user->id, 365),
         ]);
     }
 
@@ -135,15 +137,40 @@ final class ConsoleController
             $styleMap[(int)$s['id']] = $s['name'];
         }
 
+        // 批量取本页已完成任务的结果缩略图（预览列用）
+        $avatarIds = [];
+        foreach ($result['list'] as $r) {
+            if (!empty($r['avatar_id'])) {
+                $avatarIds[] = (int)$r['avatar_id'];
+            }
+        }
+        $avatarThumbs = [];
+        $avatarFulls = [];
+        if ($avatarIds !== []) {
+            $rows = DB::table('avatars')
+                ->select('id', 'result_url', 'result_thumb_url')
+                ->whereIn('id', $avatarIds)
+                ->all();
+            foreach ($rows as $a) {
+                $thumb = trim((string)($a['result_thumb_url'] ?? ''));
+                $full = trim((string)($a['result_url'] ?? ''));
+                $avatarThumbs[(int)$a['id']] = $thumb !== '' ? $thumb : $full;
+                $avatarFulls[(int)$a['id']] = $full;
+            }
+        }
+
         View::display($res, 'console/generations', [
-            'title'       => '生成记录 - 头像引擎',
-            'siteName'    => SiteSettingService::get('basic', 'site_name', '头像引擎'),
-            'currentUser' => $user,
-            'balance'     => UserService::balance((int)$user->id),
-            'list'        => $result['list'],
-            'pagination'  => $result['pagination'],
-            'filters'     => $filters,
-            'styleMap'    => $styleMap,
+            'title'        => '生成记录 - 头像引擎',
+            'siteName'     => SiteSettingService::get('basic', 'site_name', '头像引擎'),
+            'currentUser'  => $user,
+            'balance'      => UserService::balance((int)$user->id),
+            'list'         => $result['list'],
+            'pagination'   => $result['pagination'],
+            'filters'      => $filters,
+            'styleMap'     => $styleMap,
+            'avatarThumbs' => $avatarThumbs,
+            'avatarFulls'  => $avatarFulls,
+            'genChartSeries' => UserService::generationDailySeries((int)$user->id, 365),
         ]);
     }
 

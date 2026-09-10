@@ -35,6 +35,7 @@ final class PromptController
                 'id'           => (int)$s['id'],
                 'name'         => (string)$s['name'],
                 'cost_points'  => (int)$s['cost_points'],
+                'sort'         => (int)$s['sort'],
                 'status'       => (int)$s['status'],
                 'prompt'       => $current !== '' ? $current : $default,
                 'default_prompt' => $default,
@@ -71,14 +72,60 @@ final class PromptController
     }
 
     /**
-     * PUT /admin-api/prompts/styles/{id}  body: {prompt, cost_points?}
+     * POST /admin-api/prompts/styles  body: {name, prompt, cost_points?, sort?, status?}
+     * 新增一个风格类型（前台生成页立即可见）
+     */
+    public function storeStyle(Request $req, Response $res, array $params): void
+    {
+        $name = trim((string)$req->input('name', ''));
+        $prompt = trim((string)$req->input('prompt', ''));
+        if ($name === '' || mb_strlen($name) > 50) {
+            $res->error(4001, '风格名称不能为空，且不超过 50 个字');
+            return;
+        }
+        if ($prompt === '') {
+            $res->error(4001, '提示词不能为空');
+            return;
+        }
+        if (DB::table('styles')->where('name', $name)->first()) {
+            $res->error(4009, '已存在同名风格：' . $name);
+            return;
+        }
+        $cost = $req->input('cost_points') !== null ? (int)$req->input('cost_points') : 0;
+        if ($cost < 0) {
+            $res->error(4001, '积分消耗不能为负数');
+            return;
+        }
+        // 排序权重留空时自动排到末尾
+        $sort = $req->input('sort');
+        if ($sort === null || $sort === '') {
+            $maxSort = (int)DB::table('styles')->orderBy('sort', 'DESC')->value('sort');
+            $sort = $maxSort + 1;
+        } else {
+            $sort = (int)$sort;
+        }
+        $status = (int)$req->input('status', 1) === 0 ? 0 : 1;
+
+        $id = DB::table('styles')->insert([
+            'name'        => $name,
+            'prompt'      => $prompt,
+            'cost_points' => $cost,
+            'sort'        => $sort,
+            'status'      => $status,
+        ]);
+        UserService::flushDimensionCache();
+        $res->json(['created' => true, 'id' => $id]);
+    }
+
+    /**
+     * PUT /admin-api/prompts/styles/{id}
+     * body: {name?, prompt?, cost_points?, sort?, status?}
      */
     public function updateStyle(Request $req, Response $res, array $params): void
     {
         $id = (int)($params['id'] ?? 0);
-        $prompt = trim((string)$req->input('prompt', ''));
-        if ($id <= 0 || $prompt === '') {
-            $res->error(4001, '提示词不能为空');
+        if ($id <= 0) {
+            $res->error(4001, '风格 ID 错误');
             return;
         }
         $exists = DB::table('styles')->where('id', $id)->first();
@@ -86,8 +133,34 @@ final class PromptController
             $res->error(4004, '风格不存在', 404);
             return;
         }
-        $update = ['prompt' => $prompt];
-        // 积分消耗（可选传入）：非负整数
+        $update = [];
+
+        // 名称（改名时校验唯一）
+        if ($req->input('name') !== null) {
+            $name = trim((string)$req->input('name', ''));
+            if ($name === '' || mb_strlen($name) > 50) {
+                $res->error(4001, '风格名称不能为空，且不超过 50 个字');
+                return;
+            }
+            $dup = DB::table('styles')->where('name', $name)->first();
+            if ($dup && (int)$dup['id'] !== $id) {
+                $res->error(4009, '已存在同名风格：' . $name);
+                return;
+            }
+            $update['name'] = $name;
+        }
+
+        // 提示词
+        if ($req->input('prompt') !== null) {
+            $prompt = trim((string)$req->input('prompt', ''));
+            if ($prompt === '') {
+                $res->error(4001, '提示词不能为空');
+                return;
+            }
+            $update['prompt'] = $prompt;
+        }
+
+        // 积分消耗：非负整数
         if ($req->input('cost_points') !== null) {
             $cost = (int)$req->input('cost_points');
             if ($cost < 0) {
@@ -96,9 +169,41 @@ final class PromptController
             }
             $update['cost_points'] = $cost;
         }
+
+        // 排序权重
+        if ($req->input('sort') !== null && $req->input('sort') !== '') {
+            $update['sort'] = (int)$req->input('sort');
+        }
+
+        // 状态：0 停用 / 1 启用
+        if ($req->input('status') !== null) {
+            $update['status'] = (int)$req->input('status') === 0 ? 0 : 1;
+        }
+
+        if ($update === []) {
+            $res->error(4001, '没有需要更新的内容');
+            return;
+        }
         DB::table('styles')->where('id', $id)->update($update);
         UserService::flushDimensionCache();
         $res->json(['updated' => true, 'id' => $id]);
+    }
+
+    /**
+     * DELETE /admin-api/prompts/styles/{id}
+     * 删除风格；历史生成记录保留 style_id（风格缺失时自动回退基础模板，不影响历史）
+     */
+    public function destroyStyle(Request $req, Response $res, array $params): void
+    {
+        $id = (int)($params['id'] ?? 0);
+        $exists = DB::table('styles')->where('id', $id)->first();
+        if (!$exists) {
+            $res->error(4004, '风格不存在', 404);
+            return;
+        }
+        DB::table('styles')->where('id', $id)->delete();
+        UserService::flushDimensionCache();
+        $res->json(['deleted' => true, 'id' => $id]);
     }
 
     /**

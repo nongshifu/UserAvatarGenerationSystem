@@ -58,6 +58,23 @@ final class GenerationController
             }
             unset($row);
         }
+        // 批量附加生成图 URL（avatars 中缺失即头像已被删除）
+        $aids = [];
+        foreach ($result['list'] as $row) {
+            if (!empty($row['avatar_id'])) $aids[(int)$row['avatar_id']] = true;
+        }
+        $avatarsMap = [];
+        if ($aids) {
+            $avs = DB::table('avatars')->select('id', 'result_url', 'result_thumb_url')
+                ->whereIn('id', array_keys($aids))->all();
+            foreach ($avs as $a) {
+                $avatarsMap[(int)$a['id']] = [
+                    'result_url'       => (string)$a['result_url'],
+                    'result_thumb_url' => (string)$a['result_thumb_url'],
+                ];
+            }
+        }
+        $result['avatars'] = $avatarsMap;
         $res->json($result);
     }
 
